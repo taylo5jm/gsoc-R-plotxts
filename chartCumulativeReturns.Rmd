@@ -1,0 +1,141 @@
+---
+title: "Performance Analytics Plotting Example and Implementation"
+author: "Justin Taylor | <taylo5jm@dukes.jmu.edu>"
+date: "March 11, 2016"
+output: 
+  html_document:
+    theme: cerulean
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First, we walk through a code example in `PerformanceAnalytics` to illustrate how a performance summary chart is currently rendered. Then, we propose an minimal alternate implementation for a plotting function.
+
+# Example
+We will walk through a time series plotting example provided by the authors of `PerformanceAnalytics`. This example should create three plots within a graphing window: a wealth index chart, bars for per-period performance, and an underwater chart. The code below has been slightly modified from the original to illustrate my thought process, but the logic remains the same. For example, I wrap `library(PerformanceAnalytics)` in `suppressPackageStartupMessages()` and use a DataTable, instead of `head` to preview the data.  
+
+```{r}
+suppressPackageStartupMessages(library(PerformanceAnalytics))
+data(managers)
+```
+
+```{r}
+DT::datatable(managers)
+class(managers)
+sapply(managers, class)
+manager.col = 1
+indexes.cols = c(7,8)
+```
+
+```{r, fig.width = 9, fig.height = 8, fig.cap = "Wealth index chart, bars for per-period performance, and underwater chart generated in a single plotting window by PerformanceAnalytics"}
+charts.PerformanceSummary(managers[,c(manager.col,indexes.cols)], 
+                          colorset=rich6equal, lwd=2, ylog=TRUE)
+```
+
+Now, we will follow the call stack to see what functions are being used to render this plot. When following the call stack, we will show each function followed by a portion of its definition.  
+
+1. `charts.PerformanceSummary`  
+
+```{r, eval = FALSE}
+function (R, Rf = 0, main = NULL, geometric = TRUE,  ...) 
+{
+    ...
+    
+    chart.CumReturns(x, main = main, xaxis = FALSE, legend.loc = legend.loc, 
+        event.labels = event.labels, ylog = ylog, wealth.index = wealth.index, 
+        begin = begin, geometric = geometric, ylab = "Cumulative Return", 
+        ...)
+
+    ...
+}
+
+<environment: namespace:PerformanceAnalytics>
+```
+
+2. `charts.CumReturns`  
+
+```{r, eval = FALSE}
+function (R, wealth.index = FALSE, geometric = TRUE, ...) 
+{
+    ...
+  
+    chart.TimeSeries(Return.cumulative, colorset = colorset, 
+        legend.loc = legend.loc, ...)
+}
+```
+
+3. `chart.TimeSeries`
+
+```{r, eval = FALSE}
+chart.TimeSeries
+```
+
+```{r, eval = FALSE}
+function (R, auto.grid = TRUE, xaxis = TRUE, yaxis = TRUE, ...) 
+{
+    ....
+  
+    for (column in columns:1) {
+        lines(1:rows, y[, column], col = colorset[column], lwd = lwd[column], 
+            pch = pch[column], lty = lty[column], type = type, 
+            ...)
+    }
+    
+    ...
+}
+<environment: namespace:PerformanceAnalytics>
+```
+
+`lines` in Base R is used to render the cumulative returns chart. A similar approach is used in the `timeSeries` package ([https://cran.r-project.org/web/packages/timeSeries/vignettes/timeSeriesPlot.pdf](https://cran.r-project.org/web/packages/timeSeries/vignettes/timeSeriesPlot.pdf))
+
+# Alternate Implementation
+In this section, we attempt to reproduce the cumulative returns plot by using `xts::plot.xts` exclusively. We will omit several aspects of the original plot for the sake of brevity, such as adding a legend and fixing axes This document was knit with `RMarkdown`, so the `managers` data set in `PerformanceAnalytics` is already in memory.  
+
+```{r}
+library(xts)
+library(PerformanceAnalytics)
+```
+
+We create a new object, `x`, by subsetting a few columns of `managers`. `HAM1`, `HAM3`, and `HAM4` are now present in `x`. Note, I just picked three arbitrary variables to plot. 
+
+```{r}
+x <- managers[,c(1, 3, 4)]
+```
+
+Next, we define a function to plot the cumulative returns of each time series. This function is written to deal with the example case in `PerformanceAnalytics` exclusively. A real implementation of this function would have to handle other cases, such as when `x` only inherits from `xts`. Tests would also have to be written with `testthat`. 
+
+```{r}
+#' Plot a line graph of cumulative returns for an xts object with one or more variables
+#' 
+#' @importFrom xts as.xts plot.xts
+#' @param x An object that inherits from xts and zoo
+#' @return Line graph for a time series object of one or more variables
+#' @export plotCumReturns
+
+chartCumReturns <- function(x) {
+  stopifnot(inherits(x, c("xts", "zoo")))
+  
+  x <- xts::as.xts(apply(x, 2, function(y) (cumprod(1 + y))))
+  xts::plot.xts(x = x, main = "Cumulative Returns", 
+                xlab = "Date", ylab = "Returns")
+}
+
+```
+
+Call `chartCumReturns` and pass our `xts` object as an argument.
+
+```{r}
+chartCumReturns(x)
+```
+
+`lines` still may be called, but `xts::plot.xts` does that under the hood. Once again, this is a very minimal implementation of the original function. The purpose of this exercise was to reproduce the main logic in the `PerformanceAnalytics` function. Obviously, our alternate implementation would have to be generalized for the end user.  
+
+--------------------------------
+
+```{r}
+sessionInfo()
+```
+
